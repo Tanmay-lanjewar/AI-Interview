@@ -2,6 +2,9 @@ const express = require('express');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const { InterviewSessionModel } = require('../Models/InterviewSession.model');
+const { QuestionModel } = require('../Models/Question.model');
+const { generateResponse, parseJSONResponse } = require('../services/llm.service');
+const { getQuestionPrompt, getEvaluationPrompt } = require('../services/prompt.service');
 
 const InterviewRouter = express.Router();
 
@@ -77,6 +80,124 @@ InterviewRouter.post('/start', upload.single('resume'), async (req, res) => {
     } catch (error) {
         console.error("[Interview Start Error]:", error.message);
         res.status(500).json({ error: "Failed to initialize interview session." });
+    }
+});
+
+/**
+ * POST /api/interview/intro
+ * Saves the user's introduction and triggers the first technical question.
+ */
+InterviewRouter.post('/intro', async (req, res) => {
+    try {
+        const { sessionId, answer } = req.body;
+        const session = await InterviewSessionModel.findById(sessionId);
+        
+        if (!session) return res.status(404).json({ error: "Session not found." });
+
+        session.introduction = answer;
+        await session.save();
+
+        res.status(200).json({ message: "Introduction saved successfully." });
+    } catch (error) {
+        console.error("[Interview Intro Error]:", error.message);
+        res.status(500).json({ error: "Failed to save introduction." });
+    }
+});
+
+/**
+ * POST /api/interview/next-question
+ * Generates the next technical question dynamically using context and history.
+ */
+InterviewRouter.post('/next-question', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        const session = await InterviewSessionModel.findById(sessionId);
+        
+        if (!session) return res.status(404).json({ error: "Session not found." });
+
+        // RAG Logic: Pick the first 2 chunks of the resume to give context (saves tokens)
+        const resumeContext = session.resumeChunks.slice(0, 2).join('\n');
+        
+        const prompt = getQuestionPrompt(session.techStack, session.currentDifficulty, resumeContext, session.history);
+
+        let questionText = "";
+
+        try {
+            questionText = await generateResponse(prompt);
+        } catch (llmError) {
+            console.error("[LLM Generation Failed, Fallback to DB]:", llmError.message);
+            // Fallback to pre-existing MongoDB Database
+            const fallbackQuestions = await QuestionModel.find({ techStack: session.techStack });
+            if (fallbackQuestions.length > 0) {
+                const randomQ = fallbackQuestions[Math.floor(Math.random() * fallbackQuestions.length)];
+                questionText = randomQ.question;
+            } else {
+                questionText = "Could you explain a challenging technical problem you solved recently?";
+            }
+        }
+
+        res.status(200).json({ question: questionText });
+    } catch (error) {
+        console.error("[Interview Next-Question Error]:", error.message);
+        res.status(500).json({ error: "Failed to generate next question." });
+    }
+});
+
+/**
+ * POST /api/interview/evaluate
+ * Evaluates the answer via AI, updates history, and implements adaptive difficulty.
+ */
+InterviewRouter.post('/evaluate', async (req, res) => {
+    try {
+        const { sessionId, question, answer } = req.body;
+        const session = await InterviewSessionModel.findById(sessionId);
+        
+        if (!session) return res.status(404).json({ error: "Session not found." });
+
+        const prompt = getEvaluationPrompt(question, answer);
+        
+        let evaluationResult;
+        try {
+            const rawResponse = await generateResponse(prompt);
+            evaluationResult = parseJSONResponse(rawResponse);
+        } catch (llmError) {
+            console.error("[Evaluation LLM Failed]:", llmError.message);
+            // Graceful fallback evaluation if AI fails completely
+            evaluationResult = {
+                score: 5,
+                strengths: ["Attempted the question."],
+                improvements: ["Detailed evaluation unavailable due to server error."]
+            };
+        }
+
+        // Add to persistent memory (history)
+        session.history.push({
+            question,
+            answer,
+            score: evaluationResult.score,
+            strengths: evaluationResult.strengths || [],
+            improvements: evaluationResult.improvements || []
+        });
+
+        // 🔥 Adaptive Difficulty Engine
+        if (evaluationResult.score > 7) {
+            session.currentDifficulty = "Hard";
+        } else if (evaluationResult.score < 4) {
+            session.currentDifficulty = "Easy";
+        } else {
+            session.currentDifficulty = "Medium";
+        }
+
+        await session.save();
+
+        res.status(200).json({
+            evaluation: evaluationResult,
+            newDifficulty: session.currentDifficulty
+        });
+
+    } catch (error) {
+        console.error("[Interview Evaluate Error]:", error.message);
+        res.status(500).json({ error: "Failed to evaluate answer." });
     }
 });
 
