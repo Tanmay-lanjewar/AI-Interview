@@ -4,7 +4,7 @@ const pdfParse = require('pdf-parse');
 const { InterviewSessionModel } = require('../Models/InterviewSession.model');
 const { QuestionModel } = require('../Models/Question.model');
 const { generateResponse, parseJSONResponse } = require('../services/llm.service');
-const { getQuestionPrompt, getEvaluationPrompt } = require('../services/prompt.service');
+const { getQuestionPrompt, getEvaluationPrompt, getSummaryPrompt } = require('../services/prompt.service');
 
 const InterviewRouter = express.Router();
 
@@ -198,6 +198,57 @@ InterviewRouter.post('/evaluate', async (req, res) => {
     } catch (error) {
         console.error("[Interview Evaluate Error]:", error.message);
         res.status(500).json({ error: "Failed to evaluate answer." });
+    }
+});
+
+/**
+ * GET /api/interview/report/:sessionId
+ * Generates a final, holistic interview summary report based on the entire session history.
+ * Changes the session status to COMPLETED.
+ */
+InterviewRouter.get('/report/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const session = await InterviewSessionModel.findById(sessionId);
+        
+        if (!session) return res.status(404).json({ error: "Session not found." });
+
+        if (!session.history || session.history.length === 0) {
+            return res.status(400).json({ error: "No interview history found to generate a report." });
+        }
+
+        // Calculate Average Score
+        const totalScore = session.history.reduce((acc, curr) => acc + (curr.score || 0), 0);
+        const averageScore = (totalScore / session.history.length).toFixed(1);
+
+        const prompt = getSummaryPrompt(session.history);
+
+        let summaryReport;
+        try {
+            const rawResponse = await generateResponse(prompt);
+            summaryReport = parseJSONResponse(rawResponse);
+        } catch (llmError) {
+            console.error("[Summary Report LLM Failed]:", llmError.message);
+            // Graceful fallback summary
+            summaryReport = {
+                overallWeakAreas: ["Unable to generate detailed weak areas due to AI server timeout."],
+                keyStrengths: ["Successfully completed the technical interview."],
+                actionableSuggestions: ["Please review your individual question feedback for detailed improvements."]
+            };
+        }
+
+        // Mark session as completed
+        session.status = "COMPLETED";
+        await session.save();
+
+        res.status(200).json({
+            averageScore: parseFloat(averageScore),
+            report: summaryReport
+        });
+
+    } catch (error) {
+        console.error("[Interview Report Error]:", error.message);
+        res.status(500).json({ error: "Failed to generate interview report." });
     }
 });
 
