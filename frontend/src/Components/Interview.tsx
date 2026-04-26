@@ -9,7 +9,6 @@ import Webcam from "react-webcam";
 import { MdCopyAll } from "react-icons/md";
 import axios from "axios";
 import { useSearchParams } from "react-router-dom";
-import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
 import { Loader } from "./Loader ";
 
 type Array = {
@@ -32,7 +31,6 @@ export const Interview = () => {
   const [feedBack, setFeedBack] = useState<string>("");
 
   const start = () => {
-    alert("Interview Started");
     SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
   };
   const stop = () => {
@@ -51,13 +49,13 @@ export const Interview = () => {
     setShowFeed(false);
     resetTranscript();
     setCurrentIndex((prev) => (prev === questions?.length - 1 ? 0 : prev + 1));
-    // SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
     window.speechSynthesis.cancel();
   };
 
   const handleprevious = () => {
     setShowFeed(false);
-    // SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
+    resetTranscript();
+    setCurrentIndex((prev) => (prev === 0 ? questions?.length - 1 : prev - 1));
     window.speechSynthesis.cancel();
   };
 
@@ -81,7 +79,7 @@ export const Interview = () => {
 
     let prompt = `Consider your self as a interviewer for full stack web developer. This is question :- ${questions[currentIndex].question} and this is my answer of this question :- ${transcript} give me feedback on this answer. The feedback should be evaluated using the following rubrics Feedback for Subject Matter Expertise and Communication skills should contain ratings on my interview responses from 0 - 10. Don't mention any where that you are an AI model just give feedback`;
     axios
-      .get(`http://localhost:8080/bot/chat?prompt= ${prompt}`)
+      .get(`http://localhost:8081/bot/chat?prompt= ${prompt}`)
       .then((res) => {
         setFeedBack(res.data);
         setIsLoading(false);
@@ -104,16 +102,9 @@ export const Interview = () => {
           {showFeed ? (
             <div className="feedback-container">
               <div className="feedback">
-                <div>
                 <div className="student-answer">
                   <h1 className="student-answer-heading">Your Answer</h1>
                   <p>{transcript}</p>
-                </div>
-                {/* <div className="gif">
-                {
-                  isLoading ? <Loader /> : <video> <source src={bot} type="video/mp4"/> </video> />
-                }
-                </div> */}
                 </div>
                 <div className="chat-feedback">
                   {isLoading === false && (
@@ -399,11 +390,5 @@ const DIV = styled.div`
     /* align-items: center; */
   }
 
-  /* .gif{
-    width: 640px;
-    height: 300px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  } */
 `;
+
