@@ -14,7 +14,7 @@ const getClient = () => {
 // Returns plain text — used for question generation
 const generateText = async (prompt) => {
   const client = getClient();
-  const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = client.getGenerativeModel({ model: "gemini-2.5-flash" });
   const result = await model.generateContent(prompt);
   return result.response.text().trim();
 };
@@ -23,7 +23,7 @@ const generateText = async (prompt) => {
 // Gemini sometimes wraps JSON in ```json ... ``` fences, so we strip those first
 const generateJSON = async (prompt) => {
   const client = getClient();
-  const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = client.getGenerativeModel({ model: "gemini-2.5-flash" });
   const result = await model.generateContent(prompt);
   let raw = result.response.text().trim();
 
