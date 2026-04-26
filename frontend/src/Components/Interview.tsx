@@ -9,7 +9,6 @@ import Webcam from "react-webcam";
 import { MdCopyAll } from "react-icons/md";
 import axios from "axios";
 import { useSearchParams } from "react-router-dom";
-import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
 import { Loader } from "./Loader ";
 
 type Array = {
@@ -32,7 +31,6 @@ export const Interview = () => {
   const [feedBack, setFeedBack] = useState<string>("");
 
   const start = () => {
-    alert("Interview Started");
     SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
   };
   const stop = () => {
@@ -51,13 +49,13 @@ export const Interview = () => {
     setShowFeed(false);
     resetTranscript();
     setCurrentIndex((prev) => (prev === questions?.length - 1 ? 0 : prev + 1));
-    // SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
     window.speechSynthesis.cancel();
   };
 
   const handleprevious = () => {
     setShowFeed(false);
-    // SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
+    resetTranscript();
+    setCurrentIndex((prev) => (prev === 0 ? questions?.length - 1 : prev - 1));
     window.speechSynthesis.cancel();
   };
 
@@ -81,7 +79,7 @@ export const Interview = () => {
 
     let prompt = `Consider your self as a interviewer for full stack web developer. This is question :- ${questions[currentIndex].question} and this is my answer of this question :- ${transcript} give me feedback on this answer. The feedback should be evaluated using the following rubrics Feedback for Subject Matter Expertise and Communication skills should contain ratings on my interview responses from 0 - 10. Don't mention any where that you are an AI model just give feedback`;
     axios
-      .get(`http://localhost:8080/bot/chat?prompt= ${prompt}`)
+      .get(`http://localhost:8081/bot/chat?prompt= ${prompt}`)
       .then((res) => {
         setFeedBack(res.data);
         setIsLoading(false);
@@ -104,16 +102,9 @@ export const Interview = () => {
           {showFeed ? (
             <div className="feedback-container">
               <div className="feedback">
-                <div>
                 <div className="student-answer">
                   <h1 className="student-answer-heading">Your Answer</h1>
                   <p>{transcript}</p>
-                </div>
-                {/* <div className="gif">
-                {
-                  isLoading ? <Loader /> : <video> <source src={bot} type="video/mp4"/> </video> />
-                }
-                </div> */}
                 </div>
                 <div className="chat-feedback">
                   {isLoading === false && (
@@ -234,16 +225,12 @@ const DIV = styled.div`
 
   .question-container {
     width: 50%;
-    /* height: 300px; */
-    /* border: solid lightgray 1px; */
     text-align: left;
     padding: 20px;
   }
 
   .cam-container {
     width: 50%;
-    /* height: 300px; */
-    /* border: solid lightgray 1px; */
     display: flex;
     justify-content: right;
     padding-top: 30px;
@@ -270,7 +257,6 @@ const DIV = styled.div`
     border: solid lightgray 1px;
     margin: 10px 15px;
     border-radius: 5px;
-    background-color: #5cdb94;
     background-color: #05396b;
     box-shadow: rgba(0, 0, 0, 0.16) 0px 1px 4px;
     color: white;
@@ -311,7 +297,6 @@ const DIV = styled.div`
   .feedback-container {
     padding: 20px;
     background-color: #0a2640;
-    /* border: solid lightgray 1px; */
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -326,7 +311,6 @@ const DIV = styled.div`
     width: 640px;
     height: 560px;
     border: solid lightgray 1px;
-    background-color: white;
     text-align: left;
     padding: 0px 30px;
     background-color: #244361;
@@ -359,7 +343,6 @@ const DIV = styled.div`
     margin-top: 30px;
     border-radius: 3px;
     width: 200px;
-    background-color: white;
     border: solid black 1px;
     background-color: #5cdb94;
     color: black;
@@ -374,7 +357,6 @@ const DIV = styled.div`
     width: 200px;
     background-color: white;
     border: solid black 1px;
-    background-color: white;
     color: black;
     font-weight: 600;
   }
@@ -396,14 +378,5 @@ const DIV = styled.div`
     height: 100%;
     display: flex;
     justify-content: center;
-    /* align-items: center; */
   }
-
-  /* .gif{
-    width: 640px;
-    height: 300px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  } */
 `;
