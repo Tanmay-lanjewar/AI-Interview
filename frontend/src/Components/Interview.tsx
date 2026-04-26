@@ -1,37 +1,40 @@
-import React, { useEffect, useState } from "react";
-import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
+import React, { useEffect } from "react";
+import { useState } from "react";
+import SpeechRecognition, {
+  useSpeechRecognition,
+} from "react-speech-recognition";
 import useClipboard from "react-use-clipboard";
 import styled from "styled-components";
 import Webcam from "react-webcam";
 import { MdCopyAll } from "react-icons/md";
 import axios from "axios";
 import { useSearchParams } from "react-router-dom";
+import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
 import { Loader } from "./Loader ";
 
+type Array = {
+  question: string;
+  techStack: string;
+};
+
 export const Interview = () => {
-  const { transcript, browserSupportsSpeechRecognition, resetTranscript } = useSpeechRecognition();
+  const { transcript, browserSupportsSpeechRecognition, resetTranscript } =
+    useSpeechRecognition();
   const [text, setText] = useState("");
   const [isCopied, setCopied] = useClipboard(text);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get("sessionId");
-
-  // App State Machine
-  const [appState, setAppState] = useState<"INTRO" | "QUESTION" | "FEEDBACK" | "REPORT">("INTRO");
-  
-  const [currentQuestion, setCurrentQuestion] = useState<string>("");
-  const [feedback, setFeedback] = useState<any>(null);
-  const [report, setReport] = useState<any>(null);
-
-  useEffect(() => {
-    const instruction = sessionStorage.getItem("firstInstruction") || "Please introduce yourself.";
-    setCurrentQuestion(instruction);
-  }, []);
+  const [showFeed, setShowFeed] = useState<boolean>(false);
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const techStack = searchParams.get("techStack");
+  const [questions, setQuestions] = useState<Array[]>([]);
+  const [render, setRender] = useState<boolean>(false);
+  const [feedBack, setFeedBack] = useState<string>("");
 
   const start = () => {
+    alert("Interview Started");
     SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
   };
-  
   const stop = () => {
     SpeechRecognition.stopListening();
   };
@@ -40,289 +43,367 @@ export const Interview = () => {
     resetTranscript();
   };
 
-  const handleSubmitIntro = async () => {
-    setIsLoading(true);
-    stop();
-    try {
-      await axios.post("http://localhost:8081/api/interview/intro", {
-        sessionId,
-        answer: transcript,
-      });
-      // Fetch first real technical question
-      await fetchNextQuestion();
-    } catch (error) {
-      console.error(error);
-      alert("Error submitting introduction.");
-    } finally {
-      setIsLoading(false);
-    }
+  const handleTurnoff = () => {
+    SpeechRecognition.abortListening();
   };
 
-  const handleSubmitAnswer = async () => {
-    setIsLoading(true);
-    stop();
-    try {
-      const response = await axios.post("http://localhost:8081/api/interview/evaluate", {
-        sessionId,
-        question: currentQuestion,
-        answer: transcript,
-      });
-      setFeedback(response.data.evaluation);
-      setAppState("FEEDBACK");
-      resetTranscript();
-    } catch (error) {
-      console.error(error);
-      alert("Error evaluating answer.");
-    } finally {
-      setIsLoading(false);
-    }
+  const handleNextQuestion = () => {
+    setShowFeed(false);
+    resetTranscript();
+    setCurrentIndex((prev) => (prev === questions?.length - 1 ? 0 : prev + 1));
+    // SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
+    window.speechSynthesis.cancel();
   };
 
-  const fetchNextQuestion = async () => {
-    setIsLoading(true);
-    setAppState("QUESTION");
-    setFeedback(null);
-    try {
-      const response = await axios.post("http://localhost:8081/api/interview/next-question", {
-        sessionId,
-      });
-      setCurrentQuestion(response.data.question);
-    } catch (error) {
-      console.error(error);
-      alert("Error fetching next question.");
-    } finally {
-      setIsLoading(false);
-    }
+  const handleprevious = () => {
+    setShowFeed(false);
+    // SpeechRecognition.startListening({ continuous: true, language: "en-IN" });
+    window.speechSynthesis.cancel();
   };
 
-  const handleEndInterview = async () => {
+  useEffect(() => {
+    setRender(true);
+    axios
+      .get(`http://localhost:8081/questions/get?techStack=${techStack}`)
+      .then((res) => {
+        console.log(res.data);
+        setQuestions(res.data);
+      })
+      .catch((error) => {
+        console.log(error);
+      });
+  }, []);
+
+  const handleSubmit = () => {
+    setShowFeed(true);
     setIsLoading(true);
-    try {
-      const response = await axios.get(`http://localhost:8081/api/interview/report/${sessionId}`);
-      setReport(response.data);
-      setAppState("REPORT");
-    } catch (error) {
-      console.error(error);
-      alert("Error generating final report.");
-    } finally {
-      setIsLoading(false);
-    }
+    SpeechRecognition.stopListening();
+
+    let prompt = `Consider your self as a interviewer for full stack web developer. This is question :- ${questions[currentIndex].question} and this is my answer of this question :- ${transcript} give me feedback on this answer. The feedback should be evaluated using the following rubrics Feedback for Subject Matter Expertise and Communication skills should contain ratings on my interview responses from 0 - 10. Don't mention any where that you are an AI model just give feedback`;
+    axios
+      .get(`http://localhost:8080/bot/chat?prompt= ${prompt}`)
+      .then((res) => {
+        setFeedBack(res.data);
+        setIsLoading(false);
+        const value = new SpeechSynthesisUtterance(res.data);
+        window.speechSynthesis.speak(value);
+      })
+      .catch((error) => {
+        console.log(error);
+      });
   };
 
   if (!browserSupportsSpeechRecognition) {
-    return <div>Browser does not support speech recognition.</div>;
+    return null;
   }
 
   return (
-    <DIV>
-      {appState === "REPORT" && report ? (
-        <div className="report-container">
-          <h1 className="report-heading">Final Interview Report 🎯</h1>
-          <div className="score-box">
-            <h2>Average Score: {report.averageScore} / 10</h2>
-          </div>
-          
-          <div className="report-section">
-            <h3 style={{color: "#5cdb94"}}>Key Strengths 💪</h3>
-            <ul>
-              {report.report.keyStrengths.map((s: string, i: number) => <li key={i}>{s}</li>)}
-            </ul>
-          </div>
-
-          <div className="report-section">
-            <h3 style={{color: "#ff3d3d"}}>Areas to Improve 📉</h3>
-            <ul>
-              {report.report.overallWeakAreas.map((w: string, i: number) => <li key={i}>{w}</li>)}
-            </ul>
-          </div>
-
-          <div className="report-section">
-            <h3 style={{color: "#05396b"}}>Actionable Suggestions 📝</h3>
-            <ul>
-              {report.report.actionableSuggestions.map((a: string, i: number) => <li key={i}>{a}</li>)}
-            </ul>
-          </div>
-        </div>
-      ) : (
-        <div>
-          <div className="question-and-cam-container">
-            <div className="question-container">
-              {appState === "INTRO" ? <h1>Introduction</h1> : <h1>Technical Question</h1>}
-              <p className="question">{currentQuestion}</p>
-              
-              {appState === "FEEDBACK" && feedback && (
-                <div className="instant-feedback">
-                  <h3>Score: {feedback.score}/10</h3>
-                  <p><b>Strengths:</b> {feedback.strengths?.join(" ")}</p>
-                  <p><b>Improvements:</b> {feedback.improvements?.join(" ")}</p>
+    <div>
+      {render && (
+        <DIV>
+          {showFeed ? (
+            <div className="feedback-container">
+              <div className="feedback">
+                <div>
+                <div className="student-answer">
+                  <h1 className="student-answer-heading">Your Answer</h1>
+                  <p>{transcript}</p>
+                </div>
+                {/* <div className="gif">
+                {
+                  isLoading ? <Loader /> : <video> <source src={bot} type="video/mp4"/> </video> />
+                }
+                </div> */}
+                </div>
+                <div className="chat-feedback">
+                  {isLoading === false && (
+                    <p className="feedback-heading">Feedback</p>
+                  )}
+                  {isLoading ? (
+                    <div className="loader">
+                      <Loader />
+                    </div>
+                  ) : (
+                    <p>{feedBack}</p>
+                  )}
+                </div>
+              </div>
+              {isLoading ? null : (
+                <div className="next-prev-container">
+                  <button
+                    disabled={isLoading}
+                    className="next-Question-btn"
+                    onClick={handleprevious}
+                  >
+                    Previous Question
+                  </button>
+                  <button
+                    className="next-Question-btn"
+                    onClick={handleNextQuestion}
+                    disabled={isLoading}
+                  >
+                    Next Question
+                  </button>
                 </div>
               )}
             </div>
-            <div className="cam-container">
-              <Webcam height="260px" />
-            </div>
-          </div>
+          ) : (
+            <div>
+              <div className="question-and-cam-container">
+                <div className="question-container">
+                  <h1>Question {currentIndex + 1}</h1>
+                  <p className="question">
+                    {currentIndex + 1}.{" "}
+                    {questions.length !== 0 && questions[currentIndex].question}
+                  </p>
+                  <p className="Caution">
+                    Caution: We kindly request that you refrain from refreshing
+                    or clicking on backward or forward button on the page. Doing
+                    so may result in the loss of your current progress,
+                    necessitating the need to restart the interview from the
+                    beginning. Your cooperation in this matter is greatly
+                    appreciated.
+                  </p>
+                </div>
+                <div className="cam-container">
+                  <Webcam height="260px" />
+                </div>
+              </div>
 
-          {appState !== "FEEDBACK" && (
-            <div className="speech-text-container" onClick={() => setText(transcript)}>
-              {transcript ? transcript : <h2 className="your_answer">Click Start and begin speaking...</h2>}
+              <div
+                className="speech-text-container"
+                onClick={() => setText(transcript)}
+              >
+                {transcript ? (
+                  transcript
+                ) : (
+                  <h2 className="your_answer">
+                    Click on Start button and start speaking and submit your
+                    answer after completing ....
+                  </h2>
+                )}
+              </div>
+              <div className="btn-contianer">
+                <div>
+                  <button className="btn copy" onClick={setCopied}>
+                    {isCopied ? "Copied!" : "Copy"}{" "}
+                    <MdCopyAll className="copy-icon" />
+                  </button>
+                </div>
+                <div>
+                  <button className="btn" onClick={start}>
+                    Start
+                  </button>
+                  <button className="btn stop" onClick={handleTurnoff}>
+                    Stop
+                  </button>
+                  <button className="btn" onClick={handleClear}>
+                    Clear
+                  </button>
+                  <button className="btn" onClick={handleSubmit}>
+                    Submit
+                  </button>
+                </div>
+              </div>
             </div>
           )}
-
-          <div className="btn-contianer">
-            {isLoading ? (
-               <div style={{ margin: "auto", padding: "20px" }}><h3>Processing...</h3></div>
-            ) : (
-              <>
-                {appState !== "FEEDBACK" && (
-                  <div>
-                    <button className="btn" onClick={start}>Start Mic</button>
-                    <button className="btn stop" onClick={stop}>Stop Mic</button>
-                    <button className="btn" onClick={handleClear}>Clear</button>
-                    {appState === "INTRO" ? (
-                      <button className="btn submit" onClick={handleSubmitIntro}>Submit Intro</button>
-                    ) : (
-                      <button className="btn submit" onClick={handleSubmitAnswer}>Submit Answer</button>
-                    )}
-                  </div>
-                )}
-                
-                {appState === "FEEDBACK" && (
-                  <div style={{ margin: "auto" }}>
-                    <button className="btn" onClick={fetchNextQuestion}>Next Question</button>
-                    <button className="btn stop" onClick={handleEndInterview}>End Interview & Get Report</button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+        </DIV>
       )}
-    </DIV>
+    </div>
   );
 };
 
 const DIV = styled.div`
   .speech-text-container {
     width: 90%;
-    height: 200px;
+    height: 250px;
     border: solid lightgray 1px;
     border-radius: 5px;
     margin: auto;
     margin-top: 10px;
     padding: 20px;
     text-align: start;
-    font-size: 18px;
-    background-color: #f9f9f9;
   }
 
   .question-and-cam-container {
     display: flex;
     width: 93%;
     margin: auto;
-    height: 350px;
+    height: 295px;
   }
 
   .question-container {
     width: 50%;
+    /* height: 300px; */
+    /* border: solid lightgray 1px; */
     text-align: left;
     padding: 20px;
   }
 
   .cam-container {
     width: 50%;
+    /* height: 300px; */
+    /* border: solid lightgray 1px; */
     display: flex;
     justify-content: right;
     padding-top: 30px;
   }
 
   .question {
-    font-size: 22px;
-    font-weight: 500;
-    margin-top: 20px;
-    color: #05396b;
-  }
-
-  .instant-feedback {
-    margin-top: 20px;
-    padding: 15px;
-    background-color: #e6f7ff;
-    border-left: 5px solid #1890ff;
-    border-radius: 5px;
+    font-size: 18px;
+    margin-left: 20px;
   }
 
   .your_answer {
-    color: #999;
+    margin-left: 20px;
   }
 
   .btn-contianer {
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     width: 94%;
     margin: auto;
-    margin-top: 20px;
   }
 
   .btn {
-    padding: 12px 25px;
-    border: none;
+    padding: 10px 25px;
+    border: solid lightgray 1px;
     margin: 10px 15px;
     border-radius: 5px;
+    background-color: #5cdb94;
     background-color: #05396b;
     box-shadow: rgba(0, 0, 0, 0.16) 0px 1px 4px;
     color: white;
-    font-weight: bold;
-    cursor: pointer;
-    font-size: 16px;
+    font-weight: 700;
   }
 
   .btn:hover {
-    opacity: 0.8;
+    padding: 10px 25px;
+    border: solid lightgray 1px;
+    margin: 10px 15px;
+    border-radius: 5px;
+    background-color: #97afc6;
+    color: white;
+    font-weight: 700;
+  }
+
+  .copy {
+    background-color: #5cdb94;
+    font-weight: 900;
+    border-radius: 5px;
+    box-shadow: rgba(0, 0, 0, 0.16) 0px 1px 4px;
+    display: flex;
+    align-items: center;
   }
 
   .stop {
     background-color: #ff3d3d;
   }
-  
-  .submit {
+
+  .stop:hover {
+    background-color: #ddacac;
+  }
+
+  .copy-icon {
+    font-size: 20px;
+  }
+
+  .feedback-container {
+    padding: 20px;
+    background-color: #0a2640;
+    /* border: solid lightgray 1px; */
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .feedback {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .student-answer {
+    width: 640px;
+    height: 560px;
+    border: solid lightgray 1px;
+    background-color: white;
+    text-align: left;
+    padding: 0px 30px;
+    background-color: #244361;
+    color: white;
+    border-radius: 5px;
+    margin-right: 20px;
+  }
+
+  .chat-feedback {
+    width: 700px;
+    height: 560px;
+    border: solid lightgray 1px;
+    background-color: white;
+    text-align: left;
+    padding: 0px 30px;
+    border-radius: 5px;
+  }
+
+  .student-answer-heading {
+    color: #5cdb94;
+  }
+
+  .feedback-heading {
+    font-size: 25px;
+  }
+
+  .next-Question-btn {
+    padding: 10px 20px;
+    margin: 10px;
+    margin-top: 30px;
+    border-radius: 3px;
+    width: 200px;
+    background-color: white;
+    border: solid black 1px;
     background-color: #5cdb94;
     color: black;
+    font-weight: 600;
   }
 
-  /* Report Styling */
-  .report-container {
-    max-width: 800px;
-    margin: 40px auto;
-    padding: 40px;
-    background: white;
-    box-shadow: rgba(0, 0, 0, 0.1) 0px 10px 50px;
-    border-radius: 15px;
-    text-align: left;
+  .next-Question-btn:hover {
+    padding: 10px 20px;
+    margin: 10px;
+    margin-top: 30px;
+    border-radius: 3px;
+    width: 200px;
+    background-color: white;
+    border: solid black 1px;
+    background-color: white;
+    color: black;
+    font-weight: 600;
   }
 
-  .report-heading {
-    text-align: center;
-    color: #05396b;
-    font-size: 36px;
-    margin-bottom: 20px;
+  .Caution {
+    font-size: 13px;
+    border: solid red 1px;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: #fac8c8;
   }
 
-  .score-box {
-    background: #5cdb94;
-    padding: 20px;
-    border-radius: 10px;
-    text-align: center;
-    color: #05396b;
-    margin-bottom: 30px;
+  .next-prev-container {
+    display: flex;
   }
 
-  .report-section {
-    margin-bottom: 30px;
+  .loader {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    /* align-items: center; */
   }
-  
-  .report-section ul {
-    line-height: 1.8;
-    font-size: 18px;
-    color: #444;
-  }
+
+  /* .gif{
+    width: 640px;
+    height: 300px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  } */
 `;
