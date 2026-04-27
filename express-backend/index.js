@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { QuestionRouter } = require("./Routes/question.routes");
-const { BotRouter } = require("./Routes/bot.routes");
+const { InterviewRouter } = require("./Routes/interview.routes");
 const { connection } = require("./db");
 require("dotenv").config();
 
@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 app.use("/questions", QuestionRouter);
-app.use("/bot", BotRouter);
+app.use("/api/interview", InterviewRouter);
 
 app.get("/", async (req, res) => {
   res.setHeader("Content-type", "text/html");
