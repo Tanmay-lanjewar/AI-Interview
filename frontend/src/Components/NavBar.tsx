@@ -19,7 +19,7 @@ export const NavBar = () => {
       <div className="nav-inner">
         <Link to="/" className="brand">
           <div className="brand-icon">G</div>
-          <span className="brand-name">CodeGenius</span>
+          <span className="brand-name">AI Interview</span>
         </Link>
 
         <div className="nav-links">

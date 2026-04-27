@@ -8,7 +8,7 @@ export const About = () => {
         <p className="section-label">ABOUT</p>
         <h1>Built to help you <span className="gradient-text">get hired</span></h1>
         <p className="hero-sub">
-          CodeGenius is an AI-powered mock interview platform that simulates
+          AI Interview is an AI-powered mock interview platform that simulates
           real technical interviews — personalised to your resume, evaluated
           in real time.
         </p>
@@ -18,7 +18,7 @@ export const About = () => {
         <div className="cards-row">
           <div className="info-card">
             <span className="card-icon">🎯</span>
-            <h3>What is CodeGenius?</h3>
+            <h3>What is AI Interview?</h3>
             <p>
               A browser-based interview simulator that reads your resume, generates
               context-aware questions, records your spoken answers via Groq Whisper AI,
