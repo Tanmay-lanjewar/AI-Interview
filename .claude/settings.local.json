@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr /n \"InterviewRouter\\\\|BotRouter\\\\|QuestionRouter\" \"C:\\\\Users\\\\2478504\\\\Desktop\\\\Ai interview\\\\AI-Interview\\\\express-backend\\\\index.js\")"
+    ]
+  }
+}

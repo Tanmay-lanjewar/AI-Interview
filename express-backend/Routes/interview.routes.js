@@ -1,6 +1,8 @@
 const express = require("express");
 const multer = require("multer");
 const pdfParse = require("pdf-parse");
+const OpenAI = require("openai").default;
+const { toFile } = require("openai");
 const { InterviewSessionModel } = require("../Models/InterviewSession.model");
 const { generateText, generateJSON } = require("../services/llm.service");
 
@@ -209,6 +211,51 @@ Return ONLY the question text — no numbering, no explanation, no extra text.
   } catch (error) {
     console.error("Error in /next-question:", error.message);
     res.status(500).json({ error: "Failed to generate next question. Please try again." });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/interview/transcribe
+// Accepts: multipart/form-data { audio: <webm/mp4 blob> }
+// Returns: { transcript }
+// ─────────────────────────────────────────────────────────────────────────────
+InterviewRouter.post("/transcribe", upload.single("audio"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Audio file is required." });
+    }
+
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "GROQ_API_KEY is not configured." });
+    }
+
+    // Use the OpenAI SDK pointed at Groq's API — no extra package needed
+    const groq = new OpenAI({
+      apiKey,
+      baseURL: "https://api.groq.com/openai/v1",
+    });
+
+    // Determine the mime type the browser sent (webm on Chrome, mp4 on Safari)
+    const mimeType = req.file.mimetype || "audio/webm";
+    const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+
+    // Convert the buffer into a File-like object the SDK can send
+    const audioFile = await toFile(req.file.buffer, `recording.${extension}`, {
+      type: mimeType,
+    });
+
+    const transcription = await groq.audio.transcriptions.create({
+      file: audioFile,
+      model: "whisper-large-v3",
+      response_format: "text",
+    });
+
+    // When response_format is "text", the SDK returns a plain string directly
+    res.json({ transcript: transcription.trim() });
+  } catch (error) {
+    console.error("Error in /transcribe:", error.message);
+    res.status(500).json({ error: "Transcription failed. Please try again." });
   }
 });
 
