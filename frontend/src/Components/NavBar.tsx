@@ -1,70 +1,136 @@
-import React from 'react'
-import {Link} from "react-router-dom";
-import styled from "styled-components";
-import Logo from "../assets/pngwing3.png"
+import React, { useState, useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import styled from 'styled-components';
 
 export const NavBar = () => {
+  const [scrolled, setScrolled] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const isActive = (path: string) => location.pathname === path;
+
   return (
-    <DIV>
-        <div className='logo-container'>
-        <Link className='link' to={"/"}>
-          <img className='logo' src={Logo} alt="logo" />
+    <NAV scrolled={scrolled}>
+      <div className="nav-inner">
+        <Link to="/" className="brand">
+          <div className="brand-icon">G</div>
+          <span className="brand-name">CodeGenius</span>
         </Link>
-          CodeGenius
+
+        <div className="nav-links">
+          <Link to="/" className={`nav-link ${isActive('/') ? 'active' : ''}`}>Home</Link>
+          <Link to="/interviews" className={`nav-link ${isActive('/interviews') ? 'active' : ''}`}>Interviews</Link>
+          <Link to="/about" className={`nav-link ${isActive('/about') ? 'active' : ''}`}>About</Link>
+          <Link to="/contact" className={`nav-link ${isActive('/contact') ? 'active' : ''}`}>Contact</Link>
         </div>
-        <div className='links-container'>
-          <Link className='link' to={"/"}>Home</Link>
-          <Link className='link' to={"/interviews"}>Interviews</Link>
-          <Link className='link' to={"/about"}>About</Link>
-          <Link className='link' to={"/contact"}>Contact</Link>
-        </div>
-    </DIV>
-  )
-}
 
-const DIV = styled.div`
-width:100%;
-height: 40px;
-display: flex;
-justify-content: space-between;
-padding-top: 20px;
-padding-bottom:20px;
- /* padding: 15px 20px; */
+        <Link to="/interviews" className="nav-cta">
+          Start Interview →
+        </Link>
+      </div>
+    </NAV>
+  );
+};
 
-.link {
-  margin: 0 20px;
-  color: black;
-  text-decoration: none;
-  font-weight: bold;
-}
+const NAV = styled.nav<{ scrolled: boolean }>`
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  background: ${({ scrolled }) =>
+    scrolled ? 'rgba(15, 23, 42, 0.95)' : 'rgba(15, 23, 42, 0.8)'};
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid ${({ scrolled }) => scrolled ? '#334155' : 'transparent'};
+  transition: all 0.3s ease;
 
-.links-container{
-  display: flex;
-  align-items: center;
-  margin-right: 20px;
-}
+  .nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
 
-.logo{
-  width: 40px;
-}
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+  }
 
-.logo-container{
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  margin-left: 50px;
-  font-weight: 500;
-}
+  .brand-icon {
+    width: 34px;
+    height: 34px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 16px;
+    color: white;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+  }
 
-background-color: #5cdb94;
-@media (max-width: 768px) {
-  display: flex;
-justify-content: space-arround;
-  wdith:100%;
-   padding: 15px 20px;
+  .brand-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f1f5f9;
+    letter-spacing: -0.3px;
+  }
 
-}
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
 
+  .nav-link {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #94a3b8;
+    text-decoration: none;
+    transition: all 0.2s;
 
+    &:hover {
+      color: #f1f5f9;
+      background: #1e293b;
+    }
+
+    &.active {
+      color: #f1f5f9;
+      background: #1e293b;
+    }
+  }
+
+  .nav-cta {
+    padding: 8px 18px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: all 0.2s;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 28px rgba(99, 102, 241, 0.5);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .nav-links { display: none; }
+    .nav-cta { display: none; }
+  }
 `;

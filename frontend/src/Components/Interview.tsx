@@ -2,377 +2,323 @@ import React, { useState, useRef } from "react";
 import useClipboard from "react-use-clipboard";
 import styled from "styled-components";
 import Webcam from "react-webcam";
-import { MdCopyAll } from "react-icons/md";
-import { MdMic, MdStop } from "react-icons/md";
+import { MdCopyAll, MdMic, MdStop } from "react-icons/md";
 import axios from "axios";
 import { useSearchParams } from "react-router-dom";
 import { Loader } from "./Loader ";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Phase = "upload" | "question" | "feedback";
-
-type Feedback = {
-  score: number;
-  strengths: string[];
-  improvements: string[];
-};
+type Feedback = { score: number; strengths: string[]; improvements: string[] };
 
 const API = "http://localhost:8081";
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export const Interview = () => {
-  // ── Session state ──────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("upload");
-  const [sessionId, setSessionId] = useState<string>("");
-  const [currentQuestion, setCurrentQuestion] = useState<string>("");
+  const [sessionId, setSessionId] = useState("");
+  const [currentQuestion, setCurrentQuestion] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [questionCount, setQuestionCount] = useState<number>(1);
+  const [questionCount, setQuestionCount] = useState(1);
 
-  // ── Recording / transcription state ───────────────────────────────────────
-  const [transcript, setTranscript] = useState<string>("");
-  const [isRecording, setIsRecording] = useState<boolean>(false);
-  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [transcript, setTranscript] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // ── UI state ───────────────────────────────────────────────────────────────
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
   const [isCopied, setCopied] = useClipboard(transcript);
 
   const [searchParams] = useSearchParams();
   const techStack = searchParams.get("techStack") || "";
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  const getScoreColor = (score: number) => {
-    if (score >= 8) return "#5cdb94";
-    if (score >= 5) return "#f39c12";
-    return "#e74c3c";
-  };
+  const scoreColor = (s: number) => s >= 8 ? "#10b981" : s >= 5 ? "#f59e0b" : "#ef4444";
 
-  // ── Recording logic ────────────────────────────────────────────────────────
+  /* ── Recording ── */
   const startRecording = async () => {
-    setError("");
-    setTranscript("");
+    setError(""); setTranscript("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       audioChunksRef.current = [];
-
-      // Pick a supported mime type (Chrome → webm, Safari → mp4)
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/mp4";
-
+        ? "audio/webm;codecs=opus" : "audio/mp4";
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = async () => {
-        // Stop microphone tracks so the browser mic indicator turns off
         streamRef.current?.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        await transcribeAudio(blob, mimeType);
+        await transcribeAudio(new Blob(audioChunksRef.current, { type: mimeType }), mimeType);
       };
-
       recorder.start();
       setIsRecording(true);
     } catch (err: any) {
-      setError(
-        err.name === "NotAllowedError"
-          ? "Microphone permission denied. Please allow mic access and try again."
-          : "Could not start recording. Please check your microphone."
-      );
+      setError(err.name === "NotAllowedError"
+        ? "Microphone access denied. Please allow mic access and try again."
+        : "Could not start recording. Check your microphone.");
     }
   };
 
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
-  };
+  const stopRecording = () => { mediaRecorderRef.current?.stop(); setIsRecording(false); };
 
   const transcribeAudio = async (blob: Blob, mimeType: string) => {
     setIsTranscribing(true);
-    setError("");
     try {
-      const formData = new FormData();
-      const extension = mimeType.includes("mp4") ? "mp4" : "webm";
-      formData.append("audio", blob, `recording.${extension}`);
-
-      const res = await axios.post(`${API}/api/interview/transcribe`, formData, {
+      const ext = mimeType.includes("mp4") ? "mp4" : "webm";
+      const fd = new FormData();
+      fd.append("audio", blob, `recording.${ext}`);
+      const res = await axios.post(`${API}/api/interview/transcribe`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setTranscript(res.data.transcript);
     } catch (err: any) {
-      setError(
-        err.response?.data?.error ||
-          "Transcription failed. Please record again."
-      );
-    } finally {
-      setIsTranscribing(false);
-    }
+      setError(err.response?.data?.error || "Transcription failed. Please try again.");
+    } finally { setIsTranscribing(false); }
   };
 
-  // ── Phase 0 → Start interview ──────────────────────────────────────────────
+  /* ── Phase handlers ── */
   const handleStart = async () => {
-    if (!resumeFile) {
-      setError("Please upload your resume PDF before starting.");
-      return;
-    }
-    setError("");
-    setIsLoading(true);
-
-    const formData = new FormData();
-    formData.append("resume", resumeFile);
-    formData.append("techStack", techStack);
-
+    if (!resumeFile) { setError("Please upload your resume PDF first."); return; }
+    setError(""); setIsLoading(true);
+    const fd = new FormData();
+    fd.append("resume", resumeFile);
+    fd.append("techStack", techStack);
     try {
-      const res = await axios.post(`${API}/api/interview/start`, formData, {
+      const res = await axios.post(`${API}/api/interview/start`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setSessionId(res.data.sessionId);
       setCurrentQuestion(res.data.question);
       setPhase("question");
     } catch (err: any) {
-      setError(
-        err.response?.data?.error ||
-          "Failed to start the interview. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
-    }
+      setError(err.response?.data?.error || "Failed to start interview. Please try again.");
+    } finally { setIsLoading(false); }
   };
 
-  // ── Phase 1 → Submit answer ────────────────────────────────────────────────
   const handleSubmit = async () => {
-    if (!transcript.trim()) {
-      setError("No answer recorded yet. Please record your answer first.");
-      return;
-    }
-    setError("");
-    setIsLoading(true);
-
+    if (!transcript.trim()) { setError("Please record your answer first."); return; }
+    setError(""); setIsLoading(true);
     try {
       const res = await axios.post(`${API}/api/interview/evaluate`, {
-        sessionId,
-        question: currentQuestion,
-        answer: transcript,
+        sessionId, question: currentQuestion, answer: transcript,
       });
       setFeedback(res.data);
       setPhase("feedback");
     } catch (err: any) {
-      setError(
-        err.response?.data?.error ||
-          "Failed to evaluate your answer. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
-    }
+      setError(err.response?.data?.error || "Evaluation failed. Please try again.");
+    } finally { setIsLoading(false); }
   };
 
-  // ── Phase 2 → Next question ────────────────────────────────────────────────
   const handleNextQuestion = async () => {
-    setError("");
-    setIsLoading(true);
-    setTranscript("");
-
+    setError(""); setIsLoading(true); setTranscript("");
     try {
-      const res = await axios.post(`${API}/api/interview/next-question`, {
-        sessionId,
-      });
+      const res = await axios.post(`${API}/api/interview/next-question`, { sessionId });
       setCurrentQuestion(res.data.question);
       setFeedback(null);
-      setQuestionCount((prev) => prev + 1);
+      setQuestionCount((p) => p + 1);
       setPhase("question");
     } catch (err: any) {
-      setError(
-        err.response?.data?.error ||
-          "Failed to load the next question. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
-    }
+      setError(err.response?.data?.error || "Failed to load next question.");
+    } finally { setIsLoading(false); }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <DIV>
 
-      {/* ════════════════════════════════════════
-          PHASE 0 — Resume Upload
-      ════════════════════════════════════════ */}
+      {/* ══════════════════════════════
+          PHASE 0 — Upload
+      ══════════════════════════════ */}
       {phase === "upload" && (
-        <div className="upload-container">
+        <div className="upload-page">
           <div className="upload-card">
-            <h1 className="upload-title">
-              {techStack.toUpperCase()} Interview
-            </h1>
-            <p className="upload-subtitle">
-              Upload your resume so the AI can generate personalised questions
-              based on your background and experience.
+            <div className="upload-badge">{techStack.toUpperCase()} Interview</div>
+            <h1>Ready to Practice?</h1>
+            <p className="upload-sub">
+              Upload your resume so the AI can generate questions tailored to
+              your experience and background.
             </p>
 
-            <div className="file-input-wrapper">
-              <label className="file-label" htmlFor="resume-upload">
-                {resumeFile ? `✅  ${resumeFile.name}` : "📄  Choose Resume PDF"}
-              </label>
+            <label className="dropzone" htmlFor="resume-upload">
+              <div className="dz-icon">{resumeFile ? "✅" : "📄"}</div>
+              <div className="dz-text">
+                {resumeFile
+                  ? <><strong>{resumeFile.name}</strong><span>Click to change</span></>
+                  : <><strong>Click to upload Resume</strong><span>PDF files only</span></>}
+              </div>
               <input
                 id="resume-upload"
                 type="file"
                 accept="application/pdf"
-                onChange={(e) => {
-                  setResumeFile(e.target.files?.[0] || null);
-                  setError("");
-                }}
+                onChange={(e) => { setResumeFile(e.target.files?.[0] || null); setError(""); }}
               />
-            </div>
+            </label>
 
-            {error && <p className="error-msg">{error}</p>}
+            {error && <p className="error-pill">⚠ {error}</p>}
 
-            <button
-              className="start-btn"
-              onClick={handleStart}
-              disabled={isLoading}
-            >
-              {isLoading ? <Loader /> : "Start Interview"}
+            <button className="primary-btn" onClick={handleStart} disabled={isLoading}>
+              {isLoading
+                ? <span className="btn-loader"><Loader /></span>
+                : "Start Interview →"}
             </button>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════
-          PHASE 1 — Interview Question
-      ════════════════════════════════════════ */}
+      {/* ══════════════════════════════
+          PHASE 1 — Question
+      ══════════════════════════════ */}
       {phase === "question" && (
-        <div>
-          <div className="question-and-cam-container">
-            <div className="question-container">
-              <h1>Question {questionCount}</h1>
-              <p className="question">{currentQuestion}</p>
-              <p className="Caution">
-                Do not refresh or use the browser back / forward buttons —
-                doing so will end your session.
-              </p>
-            </div>
-            <div className="cam-container">
-              <Webcam height="260px" />
-            </div>
+        <div className="question-page">
+          {/* Top bar */}
+          <div className="q-topbar">
+            <span className="q-badge">Question {questionCount}</span>
+            <span className="q-stack">{techStack.toUpperCase()}</span>
           </div>
 
-          {/* Transcript box — editable so the user can fix any Whisper errors */}
-          <textarea
-            className="speech-text-container"
-            value={transcript}
-            onChange={(e) => setTranscript(e.target.value)}
-            placeholder={
-              isTranscribing
-                ? "Transcribing your answer…"
-                : "Your answer will appear here after recording. You can also type or edit directly."
-            }
-            disabled={isTranscribing}
-          />
+          {/* Main split */}
+          <div className="q-split">
+            {/* Left: question + transcript */}
+            <div className="q-left">
+              <div className="question-card">
+                <p className="q-label">YOUR QUESTION</p>
+                <p className="q-text">{currentQuestion}</p>
+              </div>
 
-          {error && <p className="error-inline">{error}</p>}
+              <div className="transcript-card">
+                <div className="tc-header">
+                  <p className="tc-label">YOUR ANSWER</p>
+                  <button className="copy-btn" onClick={setCopied} disabled={!transcript}>
+                    <MdCopyAll /> {isCopied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <textarea
+                  className="tc-area"
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  placeholder={
+                    isTranscribing
+                      ? "Transcribing your answer…"
+                      : "Your transcribed answer will appear here. You can also type or edit directly."
+                  }
+                  disabled={isTranscribing}
+                />
+              </div>
 
-          <div className="btn-contianer">
-            {/* Copy button — copies current transcript */}
-            <div>
-              <button
-                className="btn copy"
-                onClick={setCopied}
-                disabled={!transcript}
-              >
-                {isCopied ? "Copied!" : "Copy"}{" "}
-                <MdCopyAll className="copy-icon" />
-              </button>
+              {error && <p className="error-pill">⚠ {error}</p>}
+
+              {/* Controls */}
+              <div className="controls-row">
+                {isRecording ? (
+                  <button className="rec-btn recording" onClick={stopRecording}>
+                    <MdStop /> Stop Recording
+                  </button>
+                ) : (
+                  <button
+                    className="rec-btn"
+                    onClick={startRecording}
+                    disabled={isTranscribing || isLoading}
+                  >
+                    <MdMic />
+                    {isTranscribing ? "Transcribing…" : transcript ? "Re-record" : "Start Recording"}
+                  </button>
+                )}
+
+                <button
+                  className="clear-btn"
+                  onClick={() => { setTranscript(""); setError(""); }}
+                  disabled={isRecording || isTranscribing}
+                >
+                  Clear
+                </button>
+
+                <button
+                  className="submit-btn"
+                  onClick={handleSubmit}
+                  disabled={isLoading || isRecording || isTranscribing || !transcript.trim()}
+                >
+                  {isLoading ? "Evaluating…" : "Submit Answer →"}
+                </button>
+              </div>
             </div>
 
-            <div className="right-btns">
-              {/* Record / Stop toggle */}
-              {isRecording ? (
-                <button className="btn record-btn recording" onClick={stopRecording}>
-                  <MdStop className="btn-icon" /> Stop Recording
-                </button>
-              ) : (
-                <button
-                  className="btn record-btn"
-                  onClick={startRecording}
-                  disabled={isTranscribing || isLoading}
-                >
-                  <MdMic className="btn-icon" />
-                  {isTranscribing ? "Transcribing…" : transcript ? "Re-record" : "Start Recording"}
-                </button>
-              )}
-
-              {/* Clear transcript */}
-              <button
-                className="btn"
-                onClick={() => { setTranscript(""); setError(""); }}
-                disabled={isRecording || isTranscribing}
-              >
-                Clear
-              </button>
-
-              {/* Submit — only enabled once there's a transcript */}
-              <button
-                className="btn submit-btn"
-                onClick={handleSubmit}
-                disabled={isLoading || isRecording || isTranscribing || !transcript.trim()}
-              >
-                {isLoading ? "Evaluating…" : "Submit Answer"}
-              </button>
+            {/* Right: webcam */}
+            <div className="q-right">
+              <div className="cam-card">
+                <Webcam className="webcam" />
+                <div className="cam-footer">
+                  <span className={`rec-dot ${isRecording ? "live" : ""}`} />
+                  {isRecording ? "Recording…" : "Camera Preview"}
+                </div>
+              </div>
+              <div className="caution-card">
+                ⚠ Do not refresh or use browser back/forward — it will end your session.
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════
-          PHASE 2 — Structured Feedback
-      ════════════════════════════════════════ */}
+      {/* ══════════════════════════════
+          PHASE 2 — Feedback
+      ══════════════════════════════ */}
       {phase === "feedback" && feedback && (
-        <div className="feedback-container">
-          <div className="feedback">
+        <div className="feedback-page">
+          <div className="fb-topbar">
+            <span className="q-badge">Question {questionCount} — Feedback</span>
+            <span className="q-stack">{techStack.toUpperCase()}</span>
+          </div>
 
-            {/* Left — user's answer */}
-            <div className="student-answer">
-              <h2 className="student-answer-heading">Your Answer</h2>
-              <p>{transcript}</p>
+          <div className="fb-split">
+            {/* Left: answer */}
+            <div className="answer-panel">
+              <p className="panel-label">YOUR ANSWER</p>
+              <p className="answer-text">{transcript || "—"}</p>
             </div>
 
-            {/* Right — AI feedback */}
-            <div className="chat-feedback">
+            {/* Right: feedback */}
+            <div className="feedback-panel">
               {isLoading ? (
-                <div className="loader"><Loader /></div>
+                <div className="fb-loader"><Loader /></div>
               ) : (
                 <>
-                  <div className="score-section">
-                    <span className="score-label">Score</span>
-                    <span
-                      className="score-value"
-                      style={{ color: getScoreColor(feedback.score) }}
-                    >
-                      {feedback.score}
-                      <span className="score-max">/10</span>
-                    </span>
+                  {/* Score */}
+                  <div className="score-row">
+                    <div className="score-block">
+                      <span
+                        className="score-num"
+                        style={{ color: scoreColor(feedback.score) }}
+                      >
+                        {feedback.score}
+                      </span>
+                      <span className="score-denom">/10</span>
+                    </div>
+                    <div className="score-bar-wrap">
+                      <div
+                        className="score-bar"
+                        style={{
+                          width: `${feedback.score * 10}%`,
+                          background: scoreColor(feedback.score),
+                        }}
+                      />
+                    </div>
                   </div>
 
-                  <div className="feedback-section">
-                    <h3 className="strengths-heading">✅ Strengths</h3>
-                    <ul>
+                  {/* Strengths */}
+                  <div className="fb-section">
+                    <p className="fb-section-title strengths-title">✅ Strengths</p>
+                    <ul className="fb-list">
                       {feedback.strengths.map((s, i) => (
                         <li key={i}>{s}</li>
                       ))}
                     </ul>
                   </div>
 
-                  <div className="feedback-section">
-                    <h3 className="improvements-heading">🔧 Areas to Improve</h3>
-                    <ul>
+                  {/* Improvements */}
+                  <div className="fb-section">
+                    <p className="fb-section-title improve-title">🔧 Areas to Improve</p>
+                    <ul className="fb-list">
                       {feedback.improvements.map((imp, i) => (
                         <li key={i}>{imp}</li>
                       ))}
@@ -384,9 +330,9 @@ export const Interview = () => {
           </div>
 
           {!isLoading && (
-            <div className="next-prev-container">
-              {error && <p className="error-msg">{error}</p>}
-              <button className="next-Question-btn" onClick={handleNextQuestion}>
+            <div className="fb-actions">
+              {error && <p className="error-pill">⚠ {error}</p>}
+              <button className="next-btn" onClick={handleNextQuestion}>
                 Next Question →
               </button>
             </div>
@@ -397,299 +343,544 @@ export const Interview = () => {
   );
 };
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const DIV = styled.div`
+  background: #0f172a;
+  min-height: calc(100vh - 64px);
+  color: #f1f5f9;
+
+  /* ── Shared ── */
+  .error-pill {
+    display: inline-block;
+    padding: 8px 14px;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 8px;
+    font-size: 13px;
+    color: #fca5a5;
+    margin: 4px 0;
+  }
 
   /* ── Upload ── */
-  .upload-container {
-    min-height: calc(100vh - 80px);
-    background-color: #0a2640;
+  .upload-page {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 40px 20px;
+    min-height: calc(100vh - 64px);
+    padding: 40px 24px;
   }
 
   .upload-card {
-    background: white;
-    border-radius: 12px;
-    padding: 50px 60px;
-    max-width: 520px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 24px;
+    padding: 48px 52px;
+    max-width: 500px;
     width: 100%;
     text-align: center;
-    box-shadow: rgba(0, 0, 0, 0.3) 0px 20px 40px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.4);
   }
 
-  .upload-title {
-    font-size: 36px;
-    color: #05396b;
+  .upload-badge {
+    display: inline-block;
+    padding: 5px 14px;
+    background: rgba(99,102,241,0.15);
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #a5b4fc;
+    letter-spacing: 0.5px;
+    margin-bottom: 20px;
+  }
+
+  .upload-card h1 {
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: -1px;
     margin-bottom: 12px;
   }
 
-  .upload-subtitle {
-    color: #555;
-    font-size: 15px;
-    line-height: 1.6;
-    margin-bottom: 32px;
+  .upload-sub {
+    font-size: 14px;
+    color: #64748b;
+    line-height: 1.7;
+    margin-bottom: 28px;
   }
 
-  .file-input-wrapper input[type="file"] {
-    display: none;
-  }
-
-  .file-label {
-    display: block;
-    padding: 14px 20px;
-    border: 2px dashed #05396b;
-    border-radius: 8px;
+  .dropzone {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 20px;
+    background: #0f172a;
+    border: 2px dashed #334155;
+    border-radius: 12px;
     cursor: pointer;
-    color: #05396b;
-    font-weight: 600;
-    font-size: 15px;
     margin-bottom: 20px;
-    transition: background 0.2s;
-    &:hover { background-color: #eef4fb; }
+    transition: all 0.2s;
+    text-align: left;
+
+    input { display: none; }
+
+    &:hover {
+      border-color: #6366f1;
+      background: rgba(99,102,241,0.05);
+    }
   }
 
-  .start-btn {
+  .dz-icon { font-size: 26px; flex-shrink: 0; }
+
+  .dz-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+
+    strong { font-size: 14px; color: #f1f5f9; font-weight: 600; }
+    span { font-size: 12px; color: #64748b; }
+  }
+
+  .primary-btn {
     width: 100%;
     padding: 14px;
-    background-color: #05396b;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
     color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 700;
+    border: none;
+    border-radius: 12px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 50px;
-    &:hover:not(:disabled) { background-color: #0a5599; }
-    &:disabled { opacity: 0.7; cursor: not-allowed; }
+    box-shadow: 0 0 24px rgba(99,102,241,0.4);
+    transition: all 0.2s;
+
+    &:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 0 36px rgba(99,102,241,0.6);
+    }
+    &:disabled { opacity: 0.6; cursor: not-allowed; }
   }
 
-  .error-msg {
-    color: #e74c3c;
-    font-size: 14px;
-    margin-bottom: 12px;
-  }
+  .btn-loader { transform: scale(0.5); }
 
   /* ── Question ── */
-  .question-and-cam-container {
+  .question-page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 28px 24px 40px;
+  }
+
+  .q-topbar, .fb-topbar {
     display: flex;
-    width: 93%;
-    margin: auto;
-    height: 295px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
   }
 
-  .question-container {
-    width: 50%;
-    text-align: left;
-    padding: 20px;
+  .q-badge {
+    padding: 6px 14px;
+    background: rgba(99,102,241,0.15);
+    border: 1px solid rgba(99,102,241,0.25);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #a5b4fc;
   }
 
-  .cam-container {
-    width: 50%;
+  .q-stack {
+    padding: 5px 12px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+    letter-spacing: 0.5px;
+  }
+
+  .q-split {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 24px;
+    align-items: start;
+
+    @media (max-width: 900px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .q-left {
     display: flex;
-    justify-content: right;
-    padding-top: 30px;
+    flex-direction: column;
+    gap: 16px;
   }
 
-  .question {
-    font-size: 18px;
-    margin-left: 20px;
+  .question-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 24px 28px;
   }
 
-  .speech-text-container {
-    display: block;
-    width: 90%;
-    height: 200px;
-    border: solid lightgray 1px;
-    border-radius: 5px;
-    margin: 10px auto 0;
-    padding: 16px 20px;
+  .q-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #6366f1;
+    margin-bottom: 10px;
+  }
+
+  .q-text {
+    font-size: 19px;
+    font-weight: 600;
+    color: #f1f5f9;
+    line-height: 1.55;
+    letter-spacing: -0.3px;
+  }
+
+  .transcript-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .tc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .tc-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #64748b;
+  }
+
+  .copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover:not(:disabled) { border-color: #6366f1; color: #f1f5f9; }
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
+  }
+
+  .tc-area {
+    width: 100%;
+    min-height: 140px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 14px 16px;
     font-size: 15px;
+    color: #f1f5f9;
     font-family: inherit;
-    line-height: 1.6;
     resize: vertical;
     outline: none;
-    color: #333;
-    &:focus { border-color: #05396b; box-shadow: 0 0 0 2px rgba(5,57,107,0.12); }
-    &:disabled { background: #f8f8f8; color: #888; }
+    line-height: 1.65;
+    transition: border-color 0.2s;
+
+    &::placeholder { color: #475569; }
+    &:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+    &:disabled { opacity: 0.6; }
   }
 
-  .btn-contianer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 94%;
-    margin: auto;
-    padding: 8px 0;
-  }
-
-  .right-btns {
+  .controls-row {
     display: flex;
     align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
   }
 
-  .btn {
-    padding: 10px 20px;
-    border: solid lightgray 1px;
-    margin: 10px 8px;
-    border-radius: 5px;
-    background-color: #05396b;
-    box-shadow: rgba(0, 0, 0, 0.16) 0px 1px 4px;
+  .rec-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 11px 22px;
+    background: #10b981;
     color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
     font-weight: 700;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    &:hover:not(:disabled) { background-color: #97afc6; }
+    transition: all 0.2s;
+    min-width: 160px;
+    justify-content: center;
+
+    &:hover:not(:disabled) { background: #059669; }
     &:disabled { opacity: 0.5; cursor: not-allowed; }
   }
 
-  .btn-icon {
-    font-size: 18px;
-  }
+  .rec-btn.recording {
+    background: #ef4444;
+    animation: pulse 1.4s infinite;
 
-  .record-btn {
-    background-color: #27ae60;
-    min-width: 160px;
-    justify-content: center;
-    &:hover:not(:disabled) { background-color: #1e8449; }
-  }
-
-  .recording {
-    background-color: #e74c3c;
-    animation: pulse 1.2s infinite;
-    &:hover { background-color: #c0392b; }
+    &:hover { background: #dc2626; }
   }
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+    50% { opacity: 0.75; }
   }
 
-  .copy {
-    background-color: #5cdb94;
-    color: black;
-    font-weight: 900;
+  .clear-btn {
+    padding: 11px 18px;
+    background: transparent;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover:not(:disabled) { border-color: #94a3b8; color: #f1f5f9; }
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
   }
 
   .submit-btn {
-    background-color: #05396b;
-    &:disabled { opacity: 0.5; cursor: not-allowed; }
-  }
-
-  .copy-icon { font-size: 20px; }
-
-  .error-inline {
-    color: #e74c3c;
+    margin-left: auto;
+    padding: 11px 24px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border: none;
+    border-radius: 10px;
     font-size: 14px;
-    margin: 4px 0 0 40px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 0 18px rgba(99,102,241,0.35);
+    transition: all 0.2s;
+
+    &:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 0 28px rgba(99,102,241,0.55);
+    }
+    &:disabled { opacity: 0.45; cursor: not-allowed; }
   }
 
-  .Caution {
-    font-size: 13px;
-    border: solid red 1px;
-    padding: 10px;
-    border-radius: 5px;
-    background-color: #fac8c8;
+  /* Right column */
+  .q-right {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: sticky;
+    top: 80px;
+  }
+
+  .cam-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .webcam {
+    width: 100%;
+    display: block;
+  }
+
+  .cam-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+  }
+
+  .rec-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #334155;
+    flex-shrink: 0;
+
+    &.live {
+      background: #ef4444;
+      box-shadow: 0 0 6px #ef4444;
+      animation: pulse 1.2s infinite;
+    }
+  }
+
+  .caution-card {
+    background: rgba(245,158,11,0.08);
+    border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 12px;
+    color: #fbbf24;
+    line-height: 1.6;
   }
 
   /* ── Feedback ── */
-  .feedback-container {
-    padding: 20px;
-    background-color: #0a2640;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    min-height: calc(100vh - 80px);
+  .feedback-page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 28px 24px 60px;
   }
 
-  .feedback {
-    display: flex;
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .student-answer {
-    width: 45%;
-    min-height: 500px;
-    border: solid lightgray 1px;
-    text-align: left;
-    padding: 20px 30px;
-    background-color: #244361;
-    color: white;
-    border-radius: 8px;
-    margin-right: 20px;
-    overflow-y: auto;
-  }
-
-  .student-answer-heading { color: #5cdb94; }
-
-  .chat-feedback {
-    width: 52%;
-    min-height: 500px;
-    border: solid lightgray 1px;
-    background-color: white;
-    text-align: left;
-    padding: 20px 30px;
-    border-radius: 8px;
-    overflow-y: auto;
-  }
-
-  .score-section {
-    display: flex;
-    align-items: center;
-    gap: 16px;
+  .fb-split {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 24px;
     margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 2px solid #eee;
+
+    @media (max-width: 900px) {
+      grid-template-columns: 1fr;
+    }
   }
 
-  .score-label { font-size: 18px; font-weight: 700; color: #333; }
-
-  .score-value { font-size: 52px; font-weight: 900; line-height: 1; }
-
-  .score-max { font-size: 22px; font-weight: 600; color: #888; }
-
-  .feedback-section {
-    margin-bottom: 20px;
-    ul { padding-left: 20px; margin-top: 8px; }
-    li { color: #444; line-height: 1.7; margin-bottom: 6px; }
+  .answer-panel {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 28px;
+    min-height: 400px;
   }
 
-  .strengths-heading { color: #27ae60; font-size: 17px; }
-  .improvements-heading { color: #e67e22; font-size: 17px; }
+  .panel-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #64748b;
+    margin-bottom: 14px;
+  }
 
-  .next-prev-container {
+  .answer-text {
+    font-size: 15px;
+    color: #94a3b8;
+    line-height: 1.75;
+  }
+
+  .feedback-panel {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 28px;
+    min-height: 400px;
+  }
+
+  .fb-loader {
+    width: 100%;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .score-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 28px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #334155;
+  }
+
+  .score-block {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .score-num {
+    font-size: 64px;
+    font-weight: 900;
+    line-height: 1;
+  }
+
+  .score-denom {
+    font-size: 22px;
+    font-weight: 700;
+    color: #475569;
+  }
+
+  .score-bar-wrap {
+    flex: 1;
+    height: 6px;
+    background: #334155;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .score-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+
+  .fb-section {
+    margin-bottom: 22px;
+  }
+
+  .fb-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+
+  .strengths-title { color: #10b981; }
+  .improve-title { color: #f59e0b; }
+
+  .fb-list {
+    list-style: none;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    margin-top: 10px;
+    gap: 8px;
+
+    li {
+      font-size: 14px;
+      color: #94a3b8;
+      line-height: 1.6;
+      padding: 10px 14px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+    }
   }
 
-  .next-Question-btn {
-    padding: 12px 28px;
-    margin-top: 16px;
-    border-radius: 6px;
-    border: none;
-    background-color: #5cdb94;
-    color: black;
-    font-weight: 700;
-    font-size: 16px;
-    cursor: pointer;
-    &:hover { background-color: #48c47e; }
-  }
-
-  .loader {
-    width: 100%;
-    height: 100%;
+  .fb-actions {
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+  }
+
+  .next-btn {
+    padding: 13px 28px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(99,102,241,0.35);
+    transition: all 0.2s;
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 32px rgba(99,102,241,0.55);
+    }
   }
 `;
