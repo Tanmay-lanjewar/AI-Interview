@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import { Loader } from "./Loader ";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Phase = "upload" | "reading" | "recording" | "evaluating" | "feedback" | "complete";
+type Phase = "upload" | "reading" | "recording" | "transcribing" | "review" | "evaluating" | "feedback" | "complete";
 type Feedback = { score: number; strengths: string[]; improvements: string[] };
 type HistoryEntry = { question: string; transcript: string; feedback: Feedback };
 
@@ -94,10 +94,10 @@ export const Interview = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  // when recording hits 0 → stop recorder
+  // when recording hits 0 → wait 500ms for final audio chunk to flush, then stop
   useEffect(() => {
     if (phase === "recording" && recordingTimer === 0) {
-      stopMediaRecorder();
+      setTimeout(() => stopMediaRecorder(), 500);
     }
   }, [recordingTimer, phase]);
 
@@ -106,9 +106,11 @@ export const Interview = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,   // removes echo from speakers
-          noiseSuppression: true,   // filters background noise
-          autoGainControl: true,    // keeps volume consistent
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,   // standard rate Whisper expects
+          channelCount: 1,     // mono is better for speech recognition
         },
       });
       streamRef.current = stream;
@@ -130,7 +132,7 @@ export const Interview = () => {
         if (!didSubmitRef.current) {
           didSubmitRef.current = true;
           const blob = new Blob(audioChunksRef.current, { type: mimeType });
-          await transcribeAndEvaluate(blob, mimeType);
+          await transcribeOnly(blob, mimeType);
         }
       };
 
@@ -153,31 +155,37 @@ export const Interview = () => {
     }
   };
 
-  // ── Transcribe + Evaluate (auto-triggered) ─────────────────────────────────
-  const transcribeAndEvaluate = async (blob: Blob, mimeType: string) => {
-    setPhase("evaluating");
+  // ── Step 1: Transcribe audio → show editable review ──────────────────────
+  const transcribeOnly = async (blob: Blob, mimeType: string) => {
+    setPhase("transcribing");
     setError("");
-
     try {
-      // 1. Transcribe via Groq Whisper
       const ext = mimeType.includes("mp4") ? "mp4" : "webm";
       const fd = new FormData();
       fd.append("audio", blob, `recording.${ext}`);
-      fd.append("techStack", techStack); // helps Whisper prompt be more specific
+      fd.append("techStack", techStack);
       const tRes = await axios.post(`${API}/api/interview/transcribe`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       const text: string = tRes.data.transcript || "";
       setTranscript(text);
+      setPhase("review");
+    } catch (err: any) {
+      setError("Transcription failed — you can type your answer below.");
+      setTranscript("");
+      setPhase("review");
+    }
+  };
 
-      if (!text.trim()) {
-        setError("No answer detected — moving to next question.");
-        await delay(2000);
-        await loadNextQuestion();
-        return;
-      }
-
-      // 2. Evaluate via Gemini
+  // ── Step 2: Evaluate the (possibly edited) transcript ─────────────────────
+  const evaluateAnswer = async (text: string) => {
+    if (!text.trim()) {
+      setError("Please enter your answer before submitting.");
+      return;
+    }
+    setPhase("evaluating");
+    setError("");
+    try {
       const eRes = await axios.post(`${API}/api/interview/evaluate`, {
         sessionId: sessionIdRef.current,
         question: currentQuestionRef.current,
@@ -191,9 +199,8 @@ export const Interview = () => {
       ]);
       setPhase("feedback");
     } catch (err: any) {
-      setError(err.response?.data?.error || "Something went wrong — moving to next question.");
-      await delay(2000);
-      await loadNextQuestion();
+      setError(err.response?.data?.error || "Evaluation failed. Please try again.");
+      setPhase("review");
     }
   };
 
@@ -389,14 +396,63 @@ export const Interview = () => {
       )}
 
       {/* ══════════════════════════════════════
+          PHASE: TRANSCRIBING
+      ══════════════════════════════════════ */}
+      {phase === "transcribing" && (
+        <div className="center-page">
+          <div className="eval-card">
+            <Loader />
+            <p className="eval-text">Transcribing your audio…</p>
+            <p className="eval-sub">Groq Whisper is processing your recording</p>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════
+          PHASE: REVIEW — edit transcript before submit
+      ══════════════════════════════════════ */}
+      {phase === "review" && (
+        <div className="review-page">
+          <div className="phase-topbar">
+            <span className="q-badge">Question {questionCount} — Review Answer</span>
+            <button className="end-btn" onClick={handleEndInterview}>End Interview</button>
+          </div>
+
+          <div className="review-body">
+            <div className="review-question-card">
+              <p className="panel-label">QUESTION</p>
+              <p className="review-question-text">{currentQuestion}</p>
+            </div>
+
+            <div className="review-transcript-card">
+              <p className="panel-label">YOUR ANSWER — <span className="edit-hint">fix any errors before submitting</span></p>
+              {error && <p className="error-pill" style={{ marginBottom: 12 }}>⚠ {error}</p>}
+              <textarea
+                className="transcript-textarea"
+                value={transcript}
+                onChange={(e) => { setTranscript(e.target.value); setError(""); }}
+                placeholder="Your transcribed answer will appear here. You can also type directly if transcription was empty or incorrect."
+                rows={8}
+              />
+              <div className="review-actions">
+                <button className="primary-btn submit-answer-btn" onClick={() => evaluateAnswer(transcript)}>
+                  Submit Answer →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════
           PHASE: EVALUATING
       ══════════════════════════════════════ */}
       {phase === "evaluating" && (
         <div className="center-page">
           <div className="eval-card">
             <Loader />
-            <p className="eval-text">Analysing your answer…</p>
-            <p className="eval-sub">Groq is transcribing → Gemini is evaluating</p>
+            <p className="eval-text">Evaluating your answer…</p>
+            <p className="eval-sub">Gemini is analysing your response</p>
           </div>
         </div>
       )}
@@ -878,6 +934,45 @@ const DIV = styled.div`
   .history-fb-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
 
   .complete-actions { display: flex; justify-content: center; }
+
+  /* ── Review ── */
+  .review-page { min-height: calc(100vh - 64px); display: flex; flex-direction: column; }
+
+  .review-body {
+    flex: 1; display: flex; flex-direction: column; gap: 20px;
+    max-width: 860px; width: 100%; margin: 0 auto;
+    padding: 28px 24px 48px;
+  }
+
+  .review-question-card {
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 16px; padding: 24px 28px;
+  }
+
+  .review-question-text {
+    font-size: 18px; font-weight: 600; color: #f1f5f9; line-height: 1.55;
+  }
+
+  .review-transcript-card {
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 16px; padding: 24px 28px;
+  }
+
+  .edit-hint { color: #f59e0b; font-weight: 500; text-transform: none; letter-spacing: 0; }
+
+  .transcript-textarea {
+    width: 100%; box-sizing: border-box;
+    background: #0f172a; border: 1px solid #334155; border-radius: 10px;
+    color: #f1f5f9; font-size: 15px; line-height: 1.7;
+    padding: 14px 16px; resize: vertical;
+    font-family: inherit; outline: none; transition: border-color 0.2s;
+    &:focus { border-color: #6366f1; }
+    &::placeholder { color: #475569; }
+  }
+
+  .review-actions { margin-top: 16px; display: flex; justify-content: flex-end; }
+
+  .submit-answer-btn { width: auto; padding: 13px 32px; }
 
   /* ── Continue / Done buttons ── */
   .continue-btn {
