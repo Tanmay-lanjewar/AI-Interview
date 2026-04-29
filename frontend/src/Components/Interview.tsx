@@ -104,7 +104,13 @@ export const Interview = () => {
   // ── MediaRecorder ──────────────────────────────────────────────────────────
   const startMediaRecorder = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,   // removes echo from speakers
+          noiseSuppression: true,   // filters background noise
+          autoGainControl: true,    // keeps volume consistent
+        },
+      });
       streamRef.current = stream;
       audioChunksRef.current = [];
 
@@ -128,7 +134,9 @@ export const Interview = () => {
         }
       };
 
-      recorder.start();
+      // timeslice: collect a chunk every 250ms instead of one big chunk on stop.
+      // This prevents data loss if the recorder is stopped before the buffer flushes.
+      recorder.start(250);
     } catch (err: any) {
       setError(
         err.name === "NotAllowedError"
@@ -155,6 +163,7 @@ export const Interview = () => {
       const ext = mimeType.includes("mp4") ? "mp4" : "webm";
       const fd = new FormData();
       fd.append("audio", blob, `recording.${ext}`);
+      fd.append("techStack", techStack); // helps Whisper prompt be more specific
       const tRes = await axios.post(`${API}/api/interview/transcribe`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });

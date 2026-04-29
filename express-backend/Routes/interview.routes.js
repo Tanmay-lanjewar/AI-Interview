@@ -245,10 +245,21 @@ InterviewRouter.post("/transcribe", upload.single("audio"), async (req, res) => 
       type: mimeType,
     });
 
+    // techStack can be passed from the frontend to improve context accuracy
+    const techStack = req.body.techStack || "";
+
     const transcription = await groq.audio.transcriptions.create({
       file: audioFile,
       model: "whisper-large-v3",
+      language: "en",         // force English — prevents misdetection as other languages
       response_format: "text",
+      // Prompt primes Whisper with vocabulary it will likely hear.
+      // This dramatically improves accuracy for technical terms and proper nouns.
+      prompt: `This is a spoken answer to a technical interview question about ${techStack || "software development"}.
+The candidate may mention terms such as: JavaScript, TypeScript, Node.js, React, MongoDB, Express, REST API,
+async/await, event loop, useState, useEffect, props, components, middleware, schema, aggregation,
+object-oriented programming, inheritance, polymorphism, Spring Boot, Java, SQL, NoSQL,
+HTTP, JSON, API, frontend, backend, full-stack, deployment, Git, algorithm, data structure.`,
     });
 
     // When response_format is "text", the SDK returns a plain string directly
