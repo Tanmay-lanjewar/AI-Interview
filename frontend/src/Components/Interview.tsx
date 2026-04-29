@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import { Loader } from "./Loader ";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Phase = "upload" | "reading" | "recording" | "transcribing" | "review" | "evaluating" | "feedback" | "complete";
+type Phase = "upload" | "reading" | "recording" | "transcribing" | "evaluating" | "feedback" | "complete";
 type Feedback = { score: number; strengths: string[]; improvements: string[] };
 type HistoryEntry = { question: string; transcript: string; feedback: Feedback };
 
@@ -29,6 +29,10 @@ export const Interview = () => {
   // timers
   const [readingTimer, setReadingTimer] = useState(READING_SEC);
   const [recordingTimer, setRecordingTimer] = useState(RECORDING_SEC);
+
+  // live caption (Web Speech API — display only during recording)
+  const [liveCaption, setLiveCaption] = useState("");
+  const recognitionRef = useRef<any>(null);
 
   // ui
   const [isLoading, setIsLoading] = useState(false);
@@ -101,6 +105,29 @@ export const Interview = () => {
     }
   }, [recordingTimer, phase]);
 
+  // ── Live caption (Web Speech API — visual only, not used for scoring) ───────
+  const startLiveCaption = () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    rec.onresult = (e: any) => {
+      let text = "";
+      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      setLiveCaption(text);
+    };
+    rec.onerror = () => {};
+    try { rec.start(); } catch {}
+    recognitionRef.current = rec;
+  };
+
+  const stopLiveCaption = () => {
+    try { recognitionRef.current?.stop(); } catch {}
+    recognitionRef.current = null;
+  };
+
   // ── MediaRecorder ──────────────────────────────────────────────────────────
   const startMediaRecorder = async () => {
     try {
@@ -128,6 +155,8 @@ export const Interview = () => {
       };
 
       recorder.onstop = async () => {
+        stopLiveCaption();
+        setLiveCaption("");
         streamRef.current?.getTracks().forEach((t) => t.stop());
         if (!didSubmitRef.current) {
           didSubmitRef.current = true;
@@ -136,9 +165,8 @@ export const Interview = () => {
         }
       };
 
-      // timeslice: collect a chunk every 250ms instead of one big chunk on stop.
-      // This prevents data loss if the recorder is stopped before the buffer flushes.
       recorder.start(250);
+      startLiveCaption();
     } catch (err: any) {
       setError(
         err.name === "NotAllowedError"
@@ -155,7 +183,7 @@ export const Interview = () => {
     }
   };
 
-  // ── Step 1: Transcribe audio → show editable review ──────────────────────
+  // ── Transcribe audio, then auto-evaluate ──────────────────────────────────
   const transcribeOnly = async (blob: Blob, mimeType: string) => {
     setPhase("transcribing");
     setError("");
@@ -169,18 +197,20 @@ export const Interview = () => {
       });
       const text: string = tRes.data.transcript || "";
       setTranscript(text);
-      setPhase("review");
+      await evaluateAnswer(text);
     } catch (err: any) {
-      setError("Transcription failed — you can type your answer below.");
-      setTranscript("");
-      setPhase("review");
+      setError("Transcription failed — moving to next question.");
+      await delay(2000);
+      await loadNextQuestion();
     }
   };
 
-  // ── Step 2: Evaluate the (possibly edited) transcript ─────────────────────
+  // ── Evaluate transcript via Gemini ─────────────────────────────────────────
   const evaluateAnswer = async (text: string) => {
     if (!text.trim()) {
-      setError("Please enter your answer before submitting.");
+      setError("No answer detected — moving to next question.");
+      await delay(2000);
+      await loadNextQuestion();
       return;
     }
     setPhase("evaluating");
@@ -199,8 +229,9 @@ export const Interview = () => {
       ]);
       setPhase("feedback");
     } catch (err: any) {
-      setError(err.response?.data?.error || "Evaluation failed. Please try again.");
-      setPhase("review");
+      setError(err.response?.data?.error || "Evaluation failed — moving to next question.");
+      await delay(2000);
+      await loadNextQuestion();
     }
   };
 
@@ -223,7 +254,9 @@ export const Interview = () => {
   };
 
   const handleEndInterview = () => {
-    didSubmitRef.current = true; // prevent onstop from evaluating
+    didSubmitRef.current = true;
+    stopLiveCaption();
+    setLiveCaption("");
     stopMediaRecorder();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     setPhase("complete");
@@ -369,6 +402,13 @@ export const Interview = () => {
 
                 <p className="timer-hint">Speak your answer clearly — auto-submits when timer ends</p>
 
+                {liveCaption && (
+                  <div className="live-caption">
+                    <span className="caption-label">LIVE</span>
+                    <p className="caption-text">{liveCaption}</p>
+                  </div>
+                )}
+
                 <div className="progress-bar-wrap">
                   <div
                     className="progress-bar rec-bar"
@@ -404,42 +444,6 @@ export const Interview = () => {
             <Loader />
             <p className="eval-text">Transcribing your audio…</p>
             <p className="eval-sub">Groq Whisper is processing your recording</p>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════
-          PHASE: REVIEW — edit transcript before submit
-      ══════════════════════════════════════ */}
-      {phase === "review" && (
-        <div className="review-page">
-          <div className="phase-topbar">
-            <span className="q-badge">Question {questionCount} — Review Answer</span>
-            <button className="end-btn" onClick={handleEndInterview}>End Interview</button>
-          </div>
-
-          <div className="review-body">
-            <div className="review-question-card">
-              <p className="panel-label">QUESTION</p>
-              <p className="review-question-text">{currentQuestion}</p>
-            </div>
-
-            <div className="review-transcript-card">
-              <p className="panel-label">YOUR ANSWER — <span className="edit-hint">fix any errors before submitting</span></p>
-              {error && <p className="error-pill" style={{ marginBottom: 12 }}>⚠ {error}</p>}
-              <textarea
-                className="transcript-textarea"
-                value={transcript}
-                onChange={(e) => { setTranscript(e.target.value); setError(""); }}
-                placeholder="Your transcribed answer will appear here. You can also type directly if transcription was empty or incorrect."
-                rows={8}
-              />
-              <div className="review-actions">
-                <button className="primary-btn submit-answer-btn" onClick={() => evaluateAnswer(transcript)}>
-                  Submit Answer →
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -935,44 +939,24 @@ const DIV = styled.div`
 
   .complete-actions { display: flex; justify-content: center; }
 
-  /* ── Review ── */
-  .review-page { min-height: calc(100vh - 64px); display: flex; flex-direction: column; }
-
-  .review-body {
-    flex: 1; display: flex; flex-direction: column; gap: 20px;
-    max-width: 860px; width: 100%; margin: 0 auto;
-    padding: 28px 24px 48px;
+  /* ── Live caption ── */
+  .live-caption {
+    width: 100%; max-width: 560px;
+    background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25);
+    border-radius: 12px; padding: 14px 18px;
+    margin: 4px auto 0; text-align: left;
+    display: flex; flex-direction: column; gap: 6px;
   }
 
-  .review-question-card {
-    background: #1e293b; border: 1px solid #334155;
-    border-radius: 16px; padding: 24px 28px;
+  .caption-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
+    color: #6366f1;
   }
 
-  .review-question-text {
-    font-size: 18px; font-weight: 600; color: #f1f5f9; line-height: 1.55;
+  .caption-text {
+    font-size: 14px; color: #94a3b8; line-height: 1.6;
+    margin: 0;
   }
-
-  .review-transcript-card {
-    background: #1e293b; border: 1px solid #334155;
-    border-radius: 16px; padding: 24px 28px;
-  }
-
-  .edit-hint { color: #f59e0b; font-weight: 500; text-transform: none; letter-spacing: 0; }
-
-  .transcript-textarea {
-    width: 100%; box-sizing: border-box;
-    background: #0f172a; border: 1px solid #334155; border-radius: 10px;
-    color: #f1f5f9; font-size: 15px; line-height: 1.7;
-    padding: 14px 16px; resize: vertical;
-    font-family: inherit; outline: none; transition: border-color 0.2s;
-    &:focus { border-color: #6366f1; }
-    &::placeholder { color: #475569; }
-  }
-
-  .review-actions { margin-top: 16px; display: flex; justify-content: flex-end; }
-
-  .submit-answer-btn { width: auto; padding: 13px 32px; }
 
   /* ── Continue / Done buttons ── */
   .continue-btn {
