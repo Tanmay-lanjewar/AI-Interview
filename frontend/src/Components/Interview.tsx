@@ -38,13 +38,65 @@ export const Interview = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const didSubmitRef = useRef(false); // guard against double evaluation
+  const didSubmitRef = useRef(false);
   const sessionIdRef = useRef("");
   const currentQuestionRef = useRef("");
+  const speechHandledRef = useRef(false); // prevents double-advance after speech ends
 
   // keep refs in sync with state
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { currentQuestionRef.current = currentQuestion; }, [currentQuestion]);
+
+  // ── Speech synthesis helpers ───────────────────────────────────────────────
+  const speak = (text: string, onDone?: () => void) => {
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = "en-US";
+    utt.rate = 0.92;
+    utt.pitch = 1;
+    if (onDone) {
+      utt.onend = onDone;
+      utt.onerror = onDone; // fallback: if speech fails, still advance
+    }
+    window.speechSynthesis.speak(utt);
+  };
+
+  const stopSpeech = () => window.speechSynthesis.cancel();
+
+  // ── Speak question when reading phase starts ───────────────────────────────
+  useEffect(() => {
+    if (phase !== "reading" || !currentQuestion) return;
+    speechHandledRef.current = false;
+    speak(currentQuestion, () => {
+      if (!speechHandledRef.current) {
+        speechHandledRef.current = true;
+        setPhase("recording");
+      }
+    });
+    return () => stopSpeech();
+  }, [phase, currentQuestion]);
+
+  // ── Speak feedback when result arrives, then auto-advance ─────────────────
+  useEffect(() => {
+    if (phase !== "feedback" || !feedback) return;
+    speechHandledRef.current = false;
+    const level = feedback.score >= 8 ? "Great answer!" : feedback.score >= 5 ? "Good effort." : "Keep practicing.";
+    const topStrength = feedback.strengths[0] || "";
+    const topImprovements = feedback.improvements.slice(0, 2).join(". ");
+    const text =
+      `Score ${feedback.score} out of 10. ${level} ` +
+      (topStrength ? `What you did well: ${topStrength}. ` : "") +
+      (topImprovements ? `To improve: ${topImprovements}. ` : "") +
+      `Moving to next question.`;
+    speak(text, () => {
+      if (!speechHandledRef.current) {
+        speechHandledRef.current = true;
+        setTimeout(() => loadNextQuestion(), 1000);
+      }
+    });
+    return () => stopSpeech();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, feedback]);
 
   const [searchParams] = useSearchParams();
   const techStack = searchParams.get("techStack") || "";
@@ -231,10 +283,24 @@ export const Interview = () => {
   };
 
   const handleEndInterview = () => {
+    speechHandledRef.current = true;
+    stopSpeech();
     didSubmitRef.current = true;
     stopMediaRecorder();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     setPhase("complete");
+  };
+
+  const handleNextQuestion = () => {
+    speechHandledRef.current = true;
+    stopSpeech();
+    loadNextQuestion();
+  };
+
+  const handleStartRecordingNow = () => {
+    speechHandledRef.current = true;
+    stopSpeech();
+    setPhase("recording");
   };
 
   // ── Phase 0: Upload ────────────────────────────────────────────────────────
@@ -322,7 +388,7 @@ export const Interview = () => {
             </div>
 
             <p className="timer-hint">
-              Recording starts automatically when the timer ends
+              Listen to the question — recording starts automatically when it finishes speaking
             </p>
 
             <div className="progress-bar-wrap">
@@ -332,8 +398,8 @@ export const Interview = () => {
               />
             </div>
 
-            <button className="continue-btn" onClick={() => setPhase("recording")}>
-              I've Read It — Start Recording Now →
+            <button className="continue-btn" onClick={handleStartRecordingNow}>
+              Skip — Start Recording Now →
             </button>
           </div>
         </div>
@@ -483,8 +549,8 @@ export const Interview = () => {
           {error && <p className="error-pill">⚠ {error}</p>}
 
           <div className="fb-actions">
-            <button className="next-btn" onClick={loadNextQuestion}>
-              Next Question →
+            <button className="next-btn" onClick={handleNextQuestion}>
+              Skip — Next Question →
             </button>
           </div>
         </div>
