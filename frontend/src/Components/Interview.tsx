@@ -82,16 +82,16 @@ export const Interview = () => {
     speechHandledRef.current = false;
     const level = feedback.score >= 8 ? "Great answer!" : feedback.score >= 5 ? "Good effort." : "Keep practicing.";
     const topStrength = feedback.strengths[0] || "";
-    const topImprovements = feedback.improvements.slice(0, 2).join(". ");
+    const topImprovement = feedback.improvements[0] || "";
     const text =
-      `Score ${feedback.score} out of 10. ${level} ` +
-      (topStrength ? `What you did well: ${topStrength}. ` : "") +
-      (topImprovements ? `To improve: ${topImprovements}. ` : "") +
-      `Moving to next question.`;
+      `${level} ` +
+      (topStrength ? `${topStrength}. ` : "") +
+      (topImprovement ? `To improve: ${topImprovement}. ` : "") +
+      `Next question.`;
     speak(text, () => {
       if (!speechHandledRef.current) {
         speechHandledRef.current = true;
-        setTimeout(() => loadNextQuestion(), 300);
+        loadNextQuestion();
       }
     });
     return () => stopSpeech();
