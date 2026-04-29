@@ -250,7 +250,7 @@ InterviewRouter.post("/transcribe", upload.single("audio"), async (req, res) => 
 
     const transcription = await groq.audio.transcriptions.create({
       file: audioFile,
-      model: "distil-whisper-large-v3-en",
+      model: "whisper-large-v3-turbo",
       language: "en",         // force English — prevents misdetection as other languages
       response_format: "text",
       // Prompt primes Whisper with vocabulary it will likely hear.
