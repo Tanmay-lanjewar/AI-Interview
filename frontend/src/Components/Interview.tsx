@@ -307,6 +307,10 @@ export const Interview = () => {
                 style={{ width: `${(readingTimer / READING_SEC) * 100}%` }}
               />
             </div>
+
+            <button className="continue-btn" onClick={() => setPhase("recording")}>
+              I've Read It — Start Recording Now →
+            </button>
           </div>
         </div>
       )}
@@ -355,6 +359,10 @@ export const Interview = () => {
                     style={{ width: `${(recordingTimer / RECORDING_SEC) * 100}%` }}
                   />
                 </div>
+
+                <button className="done-btn" onClick={stopMediaRecorder}>
+                  ✓ Done Answering — Submit Now
+                </button>
               </div>
 
               {/* Right: webcam */}
@@ -861,4 +869,27 @@ const DIV = styled.div`
   .history-fb-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
 
   .complete-actions { display: flex; justify-content: center; }
+
+  /* ── Continue / Done buttons ── */
+  .continue-btn {
+    margin-top: 28px;
+    padding: 13px 32px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white; border: none; border-radius: 12px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 0 24px rgba(99,102,241,0.4);
+    transition: all 0.2s;
+    &:hover { transform: translateY(-2px); box-shadow: 0 0 36px rgba(99,102,241,0.6); }
+  }
+
+  .done-btn {
+    margin-top: 20px;
+    padding: 13px 32px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white; border: none; border-radius: 12px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 0 24px rgba(16,185,129,0.4);
+    transition: all 0.2s;
+    &:hover { transform: translateY(-2px); box-shadow: 0 0 36px rgba(16,185,129,0.6); }
+  }
 `;
