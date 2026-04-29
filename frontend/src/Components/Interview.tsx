@@ -109,23 +109,37 @@ export const Interview = () => {
   const startLiveCaption = () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
+
     const rec = new SR();
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = "en-US";
+
     rec.onresult = (e: any) => {
       let text = "";
-      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
-      setLiveCaption(text);
+      for (let i = 0; i < e.results.length; i++) {
+        text += e.results[i][0].transcript + " ";
+      }
+      setLiveCaption(text.trim());
     };
+
+    // Auto-restart whenever it stops on its own (Chrome stops on silence)
+    rec.onend = () => {
+      if (recognitionRef.current === rec) {
+        try { rec.start(); } catch {}
+      }
+    };
+
     rec.onerror = () => {};
-    try { rec.start(); } catch {}
+
     recognitionRef.current = rec;
+    try { rec.start(); } catch {}
   };
 
   const stopLiveCaption = () => {
-    try { recognitionRef.current?.stop(); } catch {}
-    recognitionRef.current = null;
+    const rec = recognitionRef.current;
+    recognitionRef.current = null; // clear FIRST so onend doesn't restart it
+    try { rec?.abort(); } catch {}
   };
 
   // ── MediaRecorder ──────────────────────────────────────────────────────────
