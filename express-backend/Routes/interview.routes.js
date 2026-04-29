@@ -91,7 +91,9 @@ InterviewRouter.post("/evaluate", async (req, res) => {
     }
 
     const prompt = `
-You are a strict but fair technical interviewer evaluating a candidate for a ${session.techStack} developer role.
+You are a supportive but honest technical interviewer evaluating a candidate for a ${session.techStack} developer role.
+The candidate answered verbally (speech-to-text), so minor grammar issues or filler words should be ignored.
+Focus on whether they understand the concept, not perfect wording.
 
 Candidate's Resume:
 """
@@ -112,13 +114,14 @@ The JSON must follow this exact structure:
   "improvements": [<string>, ...]
 }
 
-Rules:
-- score 1–4: weak answer, missing key concepts
-- score 5–6: average, partially correct
-- score 7–8: good answer, mostly complete
-- score 9–10: excellent, thorough and precise
+Scoring guide (be generous — reward understanding, not memorised definitions):
+- score 1–3: answer is off-topic or shows no understanding of the concept
+- score 4–5: shows basic awareness but major gaps
+- score 6–7: understands the concept, explains it reasonably well
+- score 8–9: clear, accurate answer with good depth
+- score 10: exceptional — thorough, precise, includes edge cases or real examples
 - strengths: 2–3 specific things the candidate did well
-- improvements: 2–3 specific areas to improve or concepts they missed
+- improvements: 2–3 actionable suggestions (not penalties, just growth areas)
 `.trim();
 
     const feedback = await generateJSON(prompt);

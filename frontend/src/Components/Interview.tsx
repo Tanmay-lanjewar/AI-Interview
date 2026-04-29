@@ -91,7 +91,7 @@ export const Interview = () => {
     speak(text, () => {
       if (!speechHandledRef.current) {
         speechHandledRef.current = true;
-        setTimeout(() => loadNextQuestion(), 1000);
+        setTimeout(() => loadNextQuestion(), 300);
       }
     });
     return () => stopSpeech();
